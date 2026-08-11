@@ -12,6 +12,24 @@ def register(ctx):
         handler=tools.create_transaction,
     )
     ctx.register_tool(
+        name="controll_list_transactions",
+        toolset="controll",
+        schema=schemas.LIST_TRANSACTIONS,
+        handler=tools.list_transactions,
+    )
+    ctx.register_tool(
+        name="controll_update_transaction",
+        toolset="controll",
+        schema=schemas.UPDATE_TRANSACTION,
+        handler=tools.update_transaction,
+    )
+    ctx.register_tool(
+        name="controll_delete_transaction",
+        toolset="controll",
+        schema=schemas.DELETE_TRANSACTION,
+        handler=tools.delete_transaction,
+    )
+    ctx.register_tool(
         name="controll_monthly_report",
         toolset="controll",
         schema=schemas.MONTHLY_REPORT,

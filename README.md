@@ -21,10 +21,27 @@ O endpoint padrao e `https://controll.hzcromos.com.br`. Para outro ambiente, def
 ## Ferramentas
 
 - `controll_create_transaction`: registra receitas e despesas operacionais
+- `controll_list_transactions`: localiza lancamentos feitos pelo Hermes
+- `controll_update_transaction`: corrige um lancamento feito pelo Hermes
+- `controll_delete_transaction`: exclui um lancamento apos confirmacao explicita
 - `controll_monthly_report`: consulta o resumo mensal
 
-Investimentos, resgates, transferencias, saldo inicial e ajustes patrimoniais ficam
-fora da ferramenta de lancamento para preservar a contabilidade correta.
+O plugin identifica Filipe, Renata ou Conjunta e bloqueia repeticoes exatas ate que o
+usuario confirme que o segundo lancamento e realmente desejado.
+
+Investimentos, aportes, resgates, transferencias, pagamento de fatura, saldo inicial e
+ajustes patrimoniais ficam fora da ferramenta para preservar a contabilidade correta.
+Esses registros continuam sendo feitos manualmente no Controll.
+
+## Migracao do perfil financeiro
+
+Depois da ativacao, o Controll deve ser a unica fonte ativa dos lancamentos. O banco
+SQLite e os relatorios antigos do Hermes devem permanecer somente como arquivo historico
+de leitura. Pause os crons antigos antes de usar o plugin em producao, evitando que os dois
+sistemas continuem registrando ou enviando relatorios diferentes.
+
+As orientacoes prontas para substituir as regras financeiras antigas estao em
+[`PROFILE_FINANCEIRO_CONTROLL.md`](PROFILE_FINANCEIRO_CONTROLL.md).
 
 ## Testes
 

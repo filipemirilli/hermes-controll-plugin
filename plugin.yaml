@@ -1,9 +1,12 @@
 name: controll-finance
-version: 1.0.0
-description: Integra o Hermes Agent ao Controll para lancamentos financeiros e relatorios mensais.
+version: 1.1.0
+description: Integra o Hermes Agent ao Controll para lancamentos financeiros seguros e relatorios mensais.
 author: H&Z Technology
 provides_tools:
   - controll_create_transaction
+  - controll_list_transactions
+  - controll_update_transaction
+  - controll_delete_transaction
   - controll_monthly_report
 requires_env:
   - name: CONTROLL_API_TOKEN
