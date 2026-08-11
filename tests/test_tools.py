@@ -12,6 +12,10 @@ SPEC.loader.exec_module(TOOLS)
 
 
 class ControllPluginTests(unittest.TestCase):
+    def test_default_endpoint_uses_current_controll_domain(self):
+        with patch.dict(TOOLS.os.environ, {}, clear=True):
+            self.assertEqual(TOOLS._base_url(), "https://controll.cromoz.com.br")
+
     def test_create_transaction_builds_supported_payload(self):
         response = {"ok": True, "created": True, "transaction": {"id": 42}}
         with patch.object(TOOLS, "_api_request", return_value=response) as api_request:

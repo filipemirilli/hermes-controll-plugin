@@ -15,7 +15,7 @@ Ele nao deve ser colocado em skills, prompts, arquivos versionados ou conversas.
 - Controll com a integracao `transactions:write,reports:read` configurada
 - Variavel secreta `CONTROLL_API_TOKEN`
 
-O endpoint padrao e `https://controll.hzcromos.com.br`. Para outro ambiente, defina
+O endpoint padrao e `https://controll.cromoz.com.br`. Para outro ambiente, defina
 `CONTROLL_API_URL` com uma URL HTTPS.
 
 ## Ferramentas

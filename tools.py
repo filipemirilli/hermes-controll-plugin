@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from urllib import error, parse, request
 
 
-DEFAULT_BASE_URL = "https://controll.hzcromos.com.br"
+DEFAULT_BASE_URL = "https://controll.cromoz.com.br"
 MAX_RESPONSE_BYTES = 1_000_000
 RETRYABLE_STATUS = {502, 503, 504}
 SOURCE_PEOPLE = {"filipe": "Filipe", "renata": "Renata", "conjunta": "Conjunta"}
@@ -76,7 +76,7 @@ def _api_request(method: str, path: str, payload: dict | None = None) -> dict:
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {_token()}",
-        "User-Agent": "hermes-controll-plugin/1.1.0",
+        "User-Agent": "hermes-controll-plugin/1.1.1",
     }
     if body is not None:
         headers["Content-Type"] = "application/json"
