@@ -16,6 +16,15 @@ DEFAULT_BASE_URL = "https://controll.cromoz.com.br"
 MAX_RESPONSE_BYTES = 1_000_000
 RETRYABLE_STATUS = {502, 503, 504}
 SOURCE_PEOPLE = {"filipe": "Filipe", "renata": "Renata", "conjunta": "Conjunta"}
+PAYMENT_METHODS = {
+    "debit": "debit",
+    "debito": "debit",
+    "débito": "debit",
+    "credit": "credit",
+    "credito": "credit",
+    "crédito": "credit",
+    "pix": "pix",
+}
 
 
 class ControllApiError(ValueError):
@@ -76,7 +85,7 @@ def _api_request(method: str, path: str, payload: dict | None = None) -> dict:
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {_token()}",
-        "User-Agent": "hermes-controll-plugin/1.1.1",
+        "User-Agent": "hermes-controll-plugin/1.2.0",
     }
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -158,6 +167,20 @@ def _source_person(value: object) -> str:
     return person
 
 
+def _payment_method(value: object) -> str:
+    method = PAYMENT_METHODS.get(str(value or "").strip().casefold())
+    if not method:
+        raise ValueError("payment_method deve ser debit, credit ou pix")
+    return method
+
+
+def _payment_bank(value: object) -> str:
+    bank = " ".join(str(value or "").split())
+    if not bank or len(bank) > 120:
+        raise ValueError("payment_bank e obrigatorio e deve ter no maximo 120 caracteres")
+    return bank
+
+
 def _normalized_text(value: object) -> str:
     text = unicodedata.normalize("NFKD", str(value or "").casefold())
     return " ".join("".join(char for char in text if not unicodedata.combining(char)).split())
@@ -218,6 +241,8 @@ def create_transaction(args: dict, **kwargs) -> str:
             "type": transaction_type,
             "amount": _positive_amount(args.get("amount")),
             "sourcePerson": _source_person(args.get("source_person")),
+            "paymentMethod": _payment_method(args.get("payment_method")),
+            "paymentBank": _payment_bank(args.get("payment_bank")),
             "allowDuplicate": bool(args.get("allow_duplicate", False)),
         }
         result = _api_request("POST", "/api/integrations/transactions", payload)
@@ -283,6 +308,10 @@ def update_transaction(args: dict, **kwargs) -> str:
             payload["amount"] = _positive_amount(args.get("amount"))
         if "source_person" in args:
             payload["sourcePerson"] = _source_person(args.get("source_person"))
+        if "payment_method" in args:
+            payload["paymentMethod"] = _payment_method(args.get("payment_method"))
+        if "payment_bank" in args:
+            payload["paymentBank"] = _payment_bank(args.get("payment_bank"))
         payload["allowDuplicate"] = bool(args.get("allow_duplicate", False))
         if len(payload) == 1:
             raise ValueError("Informe ao menos um campo para corrigir")

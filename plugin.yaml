@@ -1,5 +1,5 @@
 name: controll-finance
-version: 1.1.1
+version: 1.2.0
 description: Integra o Hermes Agent ao Controll para lancamentos financeiros seguros e relatorios mensais.
 author: H&Z Technology
 provides_tools:

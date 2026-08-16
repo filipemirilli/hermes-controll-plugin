@@ -20,13 +20,15 @@ O endpoint padrao e `https://controll.cromoz.com.br`. Para outro ambiente, defin
 
 ## Ferramentas
 
-- `controll_create_transaction`: registra receitas e despesas operacionais
+- `controll_create_transaction`: registra receitas e despesas operacionais, incluindo forma de pagamento e banco
 - `controll_list_transactions`: localiza lancamentos feitos pelo Hermes
 - `controll_update_transaction`: corrige um lancamento feito pelo Hermes
 - `controll_delete_transaction`: exclui um lancamento apos confirmacao explicita
 - `controll_monthly_report`: consulta o resumo mensal
 
-O plugin identifica Filipe, Renata ou Conjunta e bloqueia repeticoes exatas ate que o
+O plugin identifica Filipe, Renata ou Conjunta, forma de pagamento (debito, credito ou
+Pix) e o banco utilizado. Se algum desses dados nao estiver claro na mensagem, ele pede
+uma confirmacao objetiva em vez de inventar. Tambem bloqueia repeticoes exatas ate que o
 usuario confirme que o segundo lancamento e realmente desejado.
 
 Investimentos, aportes, resgates, transferencias, pagamento de fatura, saldo inicial e

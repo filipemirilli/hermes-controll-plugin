@@ -53,6 +53,15 @@ CREATE_TRANSACTION = {
                     "como agua, luz, gas, internet, condominio e IPTU."
                 ),
             },
+            "payment_method": {
+                "type": "string",
+                "enum": ["debit", "credit", "pix"],
+                "description": "Forma de pagamento: debit para debito, credit para credito ou pix.",
+            },
+            "payment_bank": {
+                "type": "string",
+                "description": "Banco, instituicao ou carteira usada no pagamento, por exemplo Nubank.",
+            },
             "allow_duplicate": {
                 "type": "boolean",
                 "description": (
@@ -62,7 +71,7 @@ CREATE_TRANSACTION = {
                 "default": False,
             },
         },
-        "required": ["date", "description", "category", "type", "amount", "source_person"],
+        "required": ["date", "description", "category", "type", "amount", "source_person", "payment_method", "payment_bank"],
         "additionalProperties": False,
     },
 }
@@ -113,6 +122,14 @@ UPDATE_TRANSACTION = {
             "source_person": {
                 "type": "string",
                 "enum": ["Filipe", "Renata", "Conjunta"],
+            },
+            "payment_method": {
+                "type": "string",
+                "enum": ["debit", "credit", "pix"],
+            },
+            "payment_bank": {
+                "type": "string",
+                "description": "Novo banco, instituicao ou carteira usada no pagamento.",
             },
             "allow_duplicate": {
                 "type": "boolean",

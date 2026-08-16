@@ -26,6 +26,8 @@ class ControllPluginTests(unittest.TestCase):
                 "type": "expense",
                 "amount": 35.9,
                 "source_person": "Filipe",
+                "payment_method": "debit",
+                "payment_bank": "Nubank",
             }))
 
         self.assertTrue(result["ok"])
@@ -34,6 +36,8 @@ class ControllPluginTests(unittest.TestCase):
         self.assertEqual(path, "/api/integrations/transactions")
         self.assertEqual(payload["amount"], 35.9)
         self.assertEqual(payload["sourcePerson"], "Filipe")
+        self.assertEqual(payload["paymentMethod"], "debit")
+        self.assertEqual(payload["paymentBank"], "Nubank")
         self.assertFalse(payload["allowDuplicate"])
         self.assertTrue(payload["externalEventId"].startswith("hermes-plugin-"))
 
@@ -79,6 +83,8 @@ class ControllPluginTests(unittest.TestCase):
                 "type": "expense",
                 "amount": 35.9,
                 "source_person": "Filipe",
+                "payment_method": "pix",
+                "payment_bank": "Nubank",
             }))
 
         self.assertFalse(result["ok"])
@@ -107,6 +113,8 @@ class ControllPluginTests(unittest.TestCase):
                 "transaction_id": 42,
                 "amount": 48.5,
                 "source_person": "Conjunta",
+                "payment_method": "credit",
+                "payment_bank": "Banco Inter",
             }))
 
         self.assertTrue(result["ok"])
@@ -114,6 +122,21 @@ class ControllPluginTests(unittest.TestCase):
         self.assertEqual((method, path), ("PATCH", "/api/integrations/transactions/42"))
         self.assertEqual(payload["amount"], 48.5)
         self.assertEqual(payload["sourcePerson"], "Conjunta")
+        self.assertEqual(payload["paymentMethod"], "credit")
+        self.assertEqual(payload["paymentBank"], "Banco Inter")
+
+    def test_create_transaction_requires_payment_details(self):
+        result = json.loads(TOOLS.create_transaction({
+            "date": "2026-08-11",
+            "description": "Compra no mercado",
+            "category": "🛒 Mercado",
+            "type": "expense",
+            "amount": 35.9,
+            "source_person": "Filipe",
+        }))
+
+        self.assertFalse(result["ok"])
+        self.assertIn("payment_method", result["error"])
 
     def test_delete_transaction_requires_explicit_confirmation(self):
         with patch.object(TOOLS, "_api_request", return_value={}) as api_request:
