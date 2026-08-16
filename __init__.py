@@ -12,6 +12,12 @@ def register(ctx):
         handler=tools.create_transaction,
     )
     ctx.register_tool(
+        name="controll_register_credit_card_invoice",
+        toolset="controll",
+        schema=schemas.REGISTER_CREDIT_CARD_INVOICE,
+        handler=tools.register_credit_card_invoice,
+    )
+    ctx.register_tool(
         name="controll_list_transactions",
         toolset="controll",
         schema=schemas.LIST_TRANSACTIONS,

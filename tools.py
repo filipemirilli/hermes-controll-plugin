@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import calendar
+import hashlib
 import json
 import os
+import re
 import time
 import unicodedata
 import uuid
@@ -85,7 +88,7 @@ def _api_request(method: str, path: str, payload: dict | None = None) -> dict:
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {_token()}",
-        "User-Agent": "hermes-controll-plugin/1.2.0",
+        "User-Agent": "hermes-controll-plugin/1.4.0",
     }
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -181,6 +184,86 @@ def _payment_bank(value: object) -> str:
     return bank
 
 
+def _add_months_to_iso(iso_date: str, months: int) -> str:
+    """Avanca meses preservando o dia ou o ultimo dia do mes, se necessario."""
+    original = date.fromisoformat(iso_date)
+    target_index = (original.year * 12 + original.month - 1) + months
+    target_year, target_month_index = divmod(target_index, 12)
+    target_month = target_month_index + 1
+    target_day = min(original.day, calendar.monthrange(target_year, target_month)[1])
+    return date(target_year, target_month, target_day).isoformat()
+
+
+def _invoice_item_description(
+    description: str,
+    current_installment: int,
+    total_installments: int,
+    installment_number: int,
+) -> str:
+    """Mantem o identificador X/Y da parcela coerente em cada mes."""
+    if total_installments == 1:
+        return description
+
+    replacement = f"{installment_number}/{total_installments}"
+    number_patterns = (
+        rf"(?<!\d)0*{current_installment}\s*/\s*0*{total_installments}(?!\d)",
+        rf"(?<!\d)\d{{1,3}}\s*/\s*0*{total_installments}(?!\d)",
+    )
+    for number_pattern in number_patterns:
+        updated, replacements = re.subn(number_pattern, replacement, description, count=1)
+        if replacements:
+            return updated
+    return f"{description} ({replacement})"
+
+
+def _invoice_line_key(
+    description: str,
+    category: str,
+    amount: float,
+    current_installment: int,
+    total_installments: int,
+) -> str:
+    """Cria uma chave estavel para diferenciar linhas repetidas da mesma fatura."""
+    payload = {
+        "description": description,
+        "category": category,
+        "amount": amount,
+        "currentInstallment": current_installment,
+        "totalInstallments": total_installments,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _invoice_event_id(
+    *,
+    due_date: str,
+    description: str,
+    category: str,
+    amount: float,
+    source_person: str,
+    payment_bank: str,
+    installment_number: int,
+    total_installments: int,
+    occurrence: int,
+) -> str:
+    """Gera idempotencia por parcela, inclusive se a ferramenta for repetida."""
+    canonical = {
+        "date": due_date,
+        "description": description,
+        "category": category,
+        "amount": amount,
+        "sourcePerson": source_person,
+        "paymentMethod": "credit",
+        "paymentBank": payment_bank,
+        "installmentNumber": installment_number,
+        "totalInstallments": total_installments,
+        "occurrence": occurrence,
+    }
+    encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return f"hermes-controll-invoice-{digest}"
+
+
 def _normalized_text(value: object) -> str:
     text = unicodedata.normalize("NFKD", str(value or "").casefold())
     return " ".join("".join(char for char in text if not unicodedata.combining(char)).split())
@@ -248,6 +331,146 @@ def create_transaction(args: dict, **kwargs) -> str:
         result = _api_request("POST", "/api/integrations/transactions", payload)
         result.setdefault("ok", True)
         return _json_result(result)
+    except Exception as exc:  # handlers nunca propagam excecoes ao loop do agente
+        return _api_error_result(exc)
+
+
+def register_credit_card_invoice(args: dict, **kwargs) -> str:
+    """Registra os itens de uma fatura na data de vencimento, incluindo parcelas futuras."""
+    del kwargs
+    try:
+        invoice_due_date = _valid_iso_date(args.get("invoice_due_date"))
+        source_person = _source_person(args.get("source_person"))
+        payment_bank = _payment_bank(args.get("payment_bank"))
+        allow_duplicate = bool(args.get("allow_duplicate", False))
+        raw_items = args.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("items deve conter ao menos uma compra da fatura")
+        if len(raw_items) > 100:
+            raise ValueError("A fatura pode conter no maximo 100 compras por vez")
+
+        line_occurrences: dict[str, int] = {}
+        scheduled = []
+        created_count = 0
+        already_registered_count = 0
+        for item_index, raw_item in enumerate(raw_items, start=1):
+            if not isinstance(raw_item, dict):
+                raise ValueError(f"items[{item_index}] deve ser uma compra valida")
+
+            description = str(raw_item.get("description") or "").strip()
+            category = str(raw_item.get("category") or "").strip()
+            if not description or len(description) > 500:
+                raise ValueError(f"items[{item_index}].description e obrigatoria e limitada a 500 caracteres")
+            if not category or len(category) > 120:
+                raise ValueError(f"items[{item_index}].category e obrigatoria e limitada a 120 caracteres")
+            _reject_non_operational(description, category)
+
+            amount = _positive_amount(raw_item.get("installment_amount"))
+            current_installment = _positive_int(
+                raw_item.get("current_installment"),
+                f"items[{item_index}].current_installment",
+            )
+            total_installments = _positive_int(
+                raw_item.get("total_installments"),
+                f"items[{item_index}].total_installments",
+            )
+            if total_installments > 360:
+                raise ValueError(f"items[{item_index}].total_installments esta limitado a 360")
+            if current_installment > total_installments:
+                raise ValueError(
+                    f"items[{item_index}].current_installment nao pode ser maior que total_installments"
+                )
+
+            line_key = _invoice_line_key(
+                description,
+                category,
+                amount,
+                current_installment,
+                total_installments,
+            )
+            occurrence = line_occurrences.get(line_key, 0) + 1
+            line_occurrences[line_key] = occurrence
+
+            for offset, installment_number in enumerate(
+                range(current_installment, total_installments + 1)
+            ):
+                scheduled_date = _add_months_to_iso(invoice_due_date, offset)
+                scheduled_description = _invoice_item_description(
+                    description,
+                    current_installment,
+                    total_installments,
+                    installment_number,
+                )
+                payload = {
+                    "externalEventId": _invoice_event_id(
+                        due_date=scheduled_date,
+                        description=scheduled_description,
+                        category=category,
+                        amount=amount,
+                        source_person=source_person,
+                        payment_bank=payment_bank,
+                        installment_number=installment_number,
+                        total_installments=total_installments,
+                        occurrence=occurrence,
+                    ),
+                    "date": scheduled_date,
+                    "description": scheduled_description,
+                    "category": category,
+                    "type": "expense",
+                    "amount": amount,
+                    "sourcePerson": source_person,
+                    "paymentMethod": "credit",
+                    "paymentBank": payment_bank,
+                    "allowDuplicate": allow_duplicate,
+                }
+                try:
+                    result = _api_request("POST", "/api/integrations/transactions", payload)
+                except Exception as exc:
+                    error_payload = dict(exc.payload) if isinstance(exc, ControllApiError) else {}
+                    error_payload.update({
+                        "ok": False,
+                        "error": str(exc),
+                        "invoiceDueDate": invoice_due_date,
+                        "completed": scheduled,
+                        "failed": {
+                            "itemIndex": item_index,
+                            "description": scheduled_description,
+                            "installmentNumber": installment_number,
+                            "totalInstallments": total_installments,
+                            "date": scheduled_date,
+                        },
+                    })
+                    return _json_result(error_payload)
+
+                transaction = result.get("transaction") if isinstance(result, dict) else None
+                idempotent = bool(result.get("idempotent", False))
+                created = bool(result.get("created", True))
+                if idempotent:
+                    already_registered_count += 1
+                elif created:
+                    created_count += 1
+                scheduled.append({
+                    "itemIndex": item_index,
+                    "description": scheduled_description,
+                    "installmentNumber": installment_number,
+                    "totalInstallments": total_installments,
+                    "date": scheduled_date,
+                    "status": "already_registered" if idempotent else "created",
+                    "created": created,
+                    "idempotent": idempotent,
+                    "transactionId": transaction.get("id") if isinstance(transaction, dict) else None,
+                })
+
+        return _json_result({
+            "ok": True,
+            "invoiceDueDate": invoice_due_date,
+            "paymentMethod": "credit",
+            "paymentBank": payment_bank,
+            "scheduledCount": len(scheduled),
+            "createdCount": created_count,
+            "alreadyRegisteredCount": already_registered_count,
+            "transactions": scheduled,
+        })
     except Exception as exc:  # handlers nunca propagam excecoes ao loop do agente
         return _api_error_result(exc)
 

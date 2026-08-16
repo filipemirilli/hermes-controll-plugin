@@ -91,6 +91,211 @@ class ControllPluginTests(unittest.TestCase):
         self.assertEqual(result["code"], "possible_duplicate")
         self.assertEqual(result["duplicate"]["id"], 12)
 
+    def test_register_credit_card_invoice_creates_current_and_future_installments(self):
+        response = {
+            "ok": True,
+            "created": True,
+            "idempotent": False,
+            "transaction": {"id": 42},
+        }
+        with patch.object(TOOLS, "_api_request", return_value=response) as api_request:
+            result = json.loads(TOOLS.register_credit_card_invoice({
+                "invoice_due_date": "2026-08-10",
+                "source_person": "Filipe",
+                "payment_bank": "Nubank",
+                "items": [{
+                    "description": "Notebook (03/10)",
+                    "category": "🧥 Compras",
+                    "installment_amount": 350,
+                    "current_installment": 3,
+                    "total_installments": 10,
+                }],
+            }))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["scheduledCount"], 8)
+        self.assertEqual(result["createdCount"], 8)
+        self.assertEqual(result["alreadyRegisteredCount"], 0)
+        payloads = [call.args[2] for call in api_request.call_args_list]
+        self.assertEqual(len(payloads), 8)
+        self.assertEqual(
+            [payload["date"] for payload in payloads],
+            [
+                "2026-08-10", "2026-09-10", "2026-10-10", "2026-11-10",
+                "2026-12-10", "2027-01-10", "2027-02-10", "2027-03-10",
+            ],
+        )
+        self.assertEqual(payloads[0]["description"], "Notebook (3/10)")
+        self.assertEqual(payloads[-1]["description"], "Notebook (10/10)")
+        self.assertTrue(all(payload["paymentMethod"] == "credit" for payload in payloads))
+        self.assertTrue(all(payload["paymentBank"] == "Nubank" for payload in payloads))
+        self.assertTrue(all(payload["type"] == "expense" for payload in payloads))
+        self.assertEqual(len({payload["externalEventId"] for payload in payloads}), 8)
+
+    def test_next_invoice_reconciles_already_scheduled_installments(self):
+        first_invoice = {
+            "invoice_due_date": "2026-08-10",
+            "source_person": "Filipe",
+            "payment_bank": "Nubank",
+            "items": [{
+                "description": "Notebook 3/10",
+                "category": "🧥 Compras",
+                "installment_amount": 350,
+                "current_installment": 3,
+                "total_installments": 10,
+            }],
+        }
+        next_invoice = {
+            **first_invoice,
+            "invoice_due_date": "2026-09-10",
+            "items": [{
+                **first_invoice["items"][0],
+                "current_installment": 4,
+            }],
+        }
+        with patch.object(
+            TOOLS,
+            "_api_request",
+            return_value={"ok": True, "created": True},
+        ) as api_request:
+            first_result = json.loads(TOOLS.register_credit_card_invoice(first_invoice))
+            first_payloads = [call.args[2] for call in api_request.call_args_list]
+            api_request.reset_mock()
+            api_request.return_value = {"ok": True, "created": False, "idempotent": True}
+            next_result = json.loads(TOOLS.register_credit_card_invoice(next_invoice))
+            next_payloads = [call.args[2] for call in api_request.call_args_list]
+
+        self.assertTrue(first_result["ok"])
+        self.assertTrue(next_result["ok"])
+        self.assertEqual(
+            [payload["externalEventId"] for payload in first_payloads[1:]],
+            [payload["externalEventId"] for payload in next_payloads],
+        )
+        self.assertEqual(next_result["createdCount"], 0)
+        self.assertEqual(next_result["alreadyRegisteredCount"], 7)
+        self.assertTrue(
+            all(transaction["status"] == "already_registered" for transaction in next_result["transactions"])
+        )
+
+    def test_register_credit_card_invoice_registers_uninstallmented_purchase_at_due_date(self):
+        with patch.object(TOOLS, "_api_request", return_value={"ok": True}) as api_request:
+            result = json.loads(TOOLS.register_credit_card_invoice({
+                "invoice_due_date": "2026-08-10",
+                "source_person": "Conjunta",
+                "payment_bank": "Itaú",
+                "items": [{
+                    "description": "Supermercado",
+                    "category": "🛒 Mercado",
+                    "installment_amount": 250,
+                    "current_installment": 1,
+                    "total_installments": 1,
+                }],
+            }))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["scheduledCount"], 1)
+        _, _, payload = api_request.call_args.args
+        self.assertEqual(payload["date"], "2026-08-10")
+        self.assertEqual(payload["description"], "Supermercado")
+        self.assertEqual(payload["paymentMethod"], "credit")
+
+    def test_register_credit_card_invoice_uses_last_day_when_needed(self):
+        with patch.object(TOOLS, "_api_request", return_value={"ok": True}) as api_request:
+            result = json.loads(TOOLS.register_credit_card_invoice({
+                "invoice_due_date": "2026-01-31",
+                "source_person": "Renata",
+                "payment_bank": "Inter",
+                "items": [{
+                    "description": "Curso 1/2",
+                    "category": "🎓 Educacao",
+                    "installment_amount": 99.9,
+                    "current_installment": 1,
+                    "total_installments": 2,
+                }],
+            }))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            [call.args[2]["date"] for call in api_request.call_args_list],
+            ["2026-01-31", "2026-02-28"],
+        )
+
+    def test_register_credit_card_invoice_is_idempotent_when_retried(self):
+        args = {
+            "invoice_due_date": "2026-08-10",
+            "source_person": "Filipe",
+            "payment_bank": "Nubank",
+            "items": [{
+                "description": "Celular 2/4",
+                "category": "🧥 Compras",
+                "installment_amount": 200,
+                "current_installment": 2,
+                "total_installments": 4,
+            }],
+        }
+        with patch.object(TOOLS, "_api_request", return_value={"ok": True}) as api_request:
+            first = json.loads(TOOLS.register_credit_card_invoice(args))
+            first_payloads = [call.args[2] for call in api_request.call_args_list]
+            api_request.reset_mock()
+            second = json.loads(TOOLS.register_credit_card_invoice(args))
+            second_payloads = [call.args[2] for call in api_request.call_args_list]
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertEqual(
+            [payload["externalEventId"] for payload in first_payloads],
+            [payload["externalEventId"] for payload in second_payloads],
+        )
+
+    def test_register_credit_card_invoice_rejects_invalid_installment_range(self):
+        result = json.loads(TOOLS.register_credit_card_invoice({
+            "invoice_due_date": "2026-08-10",
+            "source_person": "Filipe",
+            "payment_bank": "Nubank",
+            "items": [{
+                "description": "Compra",
+                "category": "🧥 Compras",
+                "installment_amount": 100,
+                "current_installment": 4,
+                "total_installments": 3,
+            }],
+        }))
+
+        self.assertFalse(result["ok"])
+        self.assertIn("nao pode ser maior", result["error"])
+
+    def test_register_credit_card_invoice_preserves_duplicate_details_after_partial_run(self):
+        duplicate = {
+            "code": "possible_duplicate",
+            "error": "Possivel duplicidade encontrada",
+            "duplicate": {"id": 12, "description": "Curso 2/3"},
+        }
+        with patch.object(
+            TOOLS,
+            "_api_request",
+            side_effect=[
+                {"ok": True, "created": True, "transaction": {"id": 41}},
+                TOOLS.ControllApiError(duplicate["error"], duplicate),
+            ],
+        ):
+            result = json.loads(TOOLS.register_credit_card_invoice({
+                "invoice_due_date": "2026-08-10",
+                "source_person": "Filipe",
+                "payment_bank": "Nubank",
+                "items": [{
+                    "description": "Curso 1/2",
+                    "category": "🎓 Educacao",
+                    "installment_amount": 100,
+                    "current_installment": 1,
+                    "total_installments": 2,
+                }],
+            }))
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "possible_duplicate")
+        self.assertEqual(len(result["completed"]), 1)
+        self.assertEqual(result["failed"]["installmentNumber"], 2)
+
     def test_list_transactions_builds_filters(self):
         with patch.object(TOOLS, "_api_request", return_value={"items": []}) as api_request:
             result = json.loads(TOOLS.list_transactions({

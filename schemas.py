@@ -76,6 +76,95 @@ CREATE_TRANSACTION = {
     },
 }
 
+REGISTER_CREDIT_CARD_INVOICE = {
+    "name": "controll_register_credit_card_invoice",
+    "description": (
+        "Registra as compras de uma fatura de cartao de credito que tenha vencimento visivel. "
+        "Use obrigatoriamente para itens extraidos de uma fatura, inclusive compras sem parcelas "
+        "(informe 1/1). Cada compra atual entra na data de vencimento da fatura; para X/Y, a "
+        "ferramenta tambem cria somente X/Y ate Y/Y nos meses futuros. Nunca cria parcelas "
+        "anteriores e nunca registra um item extra chamado pagamento de fatura. Em toda nova "
+        "fatura, cada item e conferido com os lancamentos programados: uma parcela ja registrada "
+        "retorna como already_registered e nao e duplicada. O valor de cada item e o valor de UMA "
+        "parcela, nao o total original da compra. Se a API indicar "
+        "possible_duplicate, mostre o item existente e execute novamente com allow_duplicate=true "
+        "somente depois da confirmacao explicita do usuario. "
+        f"{_CATEGORIES} Confirme apenas o resultado retornado pela ferramenta."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "invoice_due_date": {
+                "type": "string",
+                "description": "Data de vencimento mostrada na fatura, em YYYY-MM-DD.",
+            },
+            "source_person": {
+                "type": "string",
+                "enum": ["Filipe", "Renata", "Conjunta"],
+                "description": "Titular responsavel pelas compras desta fatura.",
+            },
+            "payment_bank": {
+                "type": "string",
+                "description": "Banco ou instituicao emissora do cartao, por exemplo Nubank.",
+            },
+            "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "description": "Todas as compras operacionais identificadas na fatura.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "Descricao objetiva da compra, sem usar Pagamento de fatura.",
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Categoria financeira da compra.",
+                        },
+                        "installment_amount": {
+                            "type": "number",
+                            "exclusiveMinimum": 0,
+                            "description": "Valor de uma parcela ou, em 1/1, o valor total da compra.",
+                        },
+                        "current_installment": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 360,
+                            "description": "Numero da parcela que aparece nesta fatura; use 1 para compra sem parcelas.",
+                        },
+                        "total_installments": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 360,
+                            "description": "Total de parcelas; use 1 para compra sem parcelas.",
+                        },
+                    },
+                    "required": [
+                        "description",
+                        "category",
+                        "installment_amount",
+                        "current_installment",
+                        "total_installments",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+            "allow_duplicate": {
+                "type": "boolean",
+                "description": (
+                    "Use true somente depois que o usuario confirmar explicitamente que os itens "
+                    "apontados como duplicados devem ser registrados."
+                ),
+                "default": False,
+            },
+        },
+        "required": ["invoice_due_date", "source_person", "payment_bank", "items"],
+        "additionalProperties": False,
+    },
+}
+
 LIST_TRANSACTIONS = {
     "name": "controll_list_transactions",
     "description": (
