@@ -55,8 +55,15 @@ CREATE_TRANSACTION = {
             },
             "payment_method": {
                 "type": "string",
-                "enum": ["debit", "credit", "pix"],
-                "description": "Forma de pagamento: debit para debito, credit para credito ou pix.",
+                "enum": [
+                    "debit", "debito", "débito", "cartao de debito", "cartão de débito",
+                    "credit", "credito", "crédito", "cartao de credito", "cartão de crédito",
+                    "pix",
+                ],
+                "description": (
+                    "Forma de pagamento. Prefira debit para debito, credit para credito ou pix; "
+                    "as variantes em portugues tambem sao aceitas."
+                ),
             },
             "payment_bank": {
                 "type": "string",

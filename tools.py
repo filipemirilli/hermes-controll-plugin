@@ -16,6 +16,7 @@ from urllib import error, parse, request
 
 
 DEFAULT_BASE_URL = "https://controll.cromoz.com.br"
+PLUGIN_VERSION = "1.4.1"
 MAX_RESPONSE_BYTES = 1_000_000
 RETRYABLE_STATUS = {502, 503, 504}
 SOURCE_PEOPLE = {"filipe": "Filipe", "renata": "Renata", "conjunta": "Conjunta"}
@@ -88,7 +89,7 @@ def _api_request(method: str, path: str, payload: dict | None = None) -> dict:
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {_token()}",
-        "User-Agent": "hermes-controll-plugin/1.4.0",
+        "User-Agent": f"hermes-controll-plugin/{PLUGIN_VERSION}",
     }
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -171,7 +172,21 @@ def _source_person(value: object) -> str:
 
 
 def _payment_method(value: object) -> str:
-    method = PAYMENT_METHODS.get(str(value or "").strip().casefold())
+    raw = re.sub(r"[\s_-]+", " ", str(value or "").strip().casefold())
+    aliases = {
+        **PAYMENT_METHODS,
+        "cartao de debito": "debit",
+        "cartão de débito": "debit",
+        "cartao debito": "debit",
+        "cartão débito": "debit",
+        "debit card": "debit",
+        "cartao de credito": "credit",
+        "cartão de crédito": "credit",
+        "cartao credito": "credit",
+        "cartão crédito": "credit",
+        "credit card": "credit",
+    }
+    method = aliases.get(raw)
     if not method:
         raise ValueError("payment_method deve ser debit, credit ou pix")
     return method
@@ -182,6 +197,13 @@ def _payment_bank(value: object) -> str:
     if not bank or len(bank) > 120:
         raise ValueError("payment_bank e obrigatorio e deve ter no maximo 120 caracteres")
     return bank
+
+
+def _tool_argument(args: dict, snake_case: str, camel_case: str) -> object:
+    """Aceita os dois formatos usados por diferentes runtimes do Hermes."""
+    if snake_case in args:
+        return args.get(snake_case)
+    return args.get(camel_case)
 
 
 def _add_months_to_iso(iso_date: str, months: int) -> str:
@@ -324,8 +346,12 @@ def create_transaction(args: dict, **kwargs) -> str:
             "type": transaction_type,
             "amount": _positive_amount(args.get("amount")),
             "sourcePerson": _source_person(args.get("source_person")),
-            "paymentMethod": _payment_method(args.get("payment_method")),
-            "paymentBank": _payment_bank(args.get("payment_bank")),
+            "paymentMethod": _payment_method(
+                _tool_argument(args, "payment_method", "paymentMethod")
+            ),
+            "paymentBank": _payment_bank(
+                _tool_argument(args, "payment_bank", "paymentBank")
+            ),
             "allowDuplicate": bool(args.get("allow_duplicate", False)),
         }
         result = _api_request("POST", "/api/integrations/transactions", payload)

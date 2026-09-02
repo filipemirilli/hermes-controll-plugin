@@ -41,6 +41,26 @@ class ControllPluginTests(unittest.TestCase):
         self.assertFalse(payload["allowDuplicate"])
         self.assertTrue(payload["externalEventId"].startswith("hermes-plugin-"))
 
+    def test_renata_payment_details_are_normalized_and_transmitted(self):
+        response = {"ok": True, "created": True, "transaction": {"id": 43}}
+        with patch.object(TOOLS, "_api_request", return_value=response) as api_request:
+            result = json.loads(TOOLS.create_transaction({
+                "date": "2026-09-02",
+                "description": "Compra da Renata",
+                "category": "🧥 Compras",
+                "type": "expense",
+                "amount": 89.9,
+                "source_person": "Renata",
+                "paymentMethod": "Cartão de crédito",
+                "paymentBank": "Banco Inter",
+            }))
+
+        self.assertTrue(result["ok"])
+        _, _, payload = api_request.call_args.args
+        self.assertEqual(payload["sourcePerson"], "Renata")
+        self.assertEqual(payload["paymentMethod"], "credit")
+        self.assertEqual(payload["paymentBank"], "Banco Inter")
+
     def test_create_transaction_rejects_investment_type(self):
         result = json.loads(TOOLS.create_transaction({
             "date": "2026-08-11",
